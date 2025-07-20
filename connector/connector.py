@@ -14,7 +14,7 @@ import resource
 
 # Import settings from the new settings file
 try:
-    from connector_settings import (
+    from .connector_settings import (
         OPENROUTER_API_KEY,
         GROQ_API_KEY,
         LOCAL_LLAMA_BASE_URL,
