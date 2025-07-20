@@ -17,7 +17,7 @@ A simple Python connector with unified interface for various Large Language Mode
     The top-level directory is `llm_connector`, and the Python package is in the `connector/` subdirectory.
 
     ```bash
-    git submodule add <repository_url> llm_connector
+    git submodule add https://github.com/isbogdanov/llm_connector llm_connector
     git submodule update --init --recursive
     ```
     *(You can replace `llm_connector` with a different path if you prefer).*
