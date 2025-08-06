@@ -11,3 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Make the main functions and classes available for easier import
+from .connector import (
+    chat_completion,
+    get_client,
+    get_session,
+    cleanup_resources,
+)
+from .connector_settings import (
+    OPENROUTER_API_KEY,
+    GROQ_API_KEY,
+    LOCAL_LLAMA_BASE_URL,
+    OLLAMA_BASE_URL,
+)
+
+__all__ = [
+    "chat_completion",
+    "get_client",
+    "get_session",
+    "cleanup_resources",
+    "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
+    "LOCAL_LLAMA_BASE_URL",
+    "OLLAMA_BASE_URL",
+]

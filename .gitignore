@@ -69,4 +69,9 @@ venv.bak/
 
 # Custom
 connector_settings.py
-.DS_Store 
+.DS_Store
+
+# Log files
+*.log
+logs/*
+!logs/.gitkeep

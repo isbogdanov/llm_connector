@@ -15,7 +15,6 @@
 import os
 import openai
 import json
-import logging
 import requests
 import time  # Import time for latency measurement
 from typing import List, Dict, Any, Optional, Tuple  # Added Tuple
@@ -25,6 +24,9 @@ from urllib3.util.retry import Retry
 import atexit
 import gc
 import resource
+
+# Import the new logger
+from .logger_config import logger
 
 # Import settings from the new settings file
 try:
@@ -59,10 +61,6 @@ except ImportError:
     )  # Provide a default
     MODEL_PRICING = {}
 
-
-# Configure more detailed logging
-logging.basicConfig(level=logging.INFO)  # Switch to DEBUG level
-logger = logging.getLogger("LLMConnector")
 
 # Set a higher file descriptor limit if possible
 try:
@@ -387,26 +385,20 @@ def chat_completion(
             )
 
         except Exception as api_err:
-            if debug:
-                print(f"API call failed: {str(api_err)}")
-                # Try to get more info from the exception
-                err_details = str(api_err)
-                if hasattr(api_err, "response"):
-                    try:
-                        err_details += f"\nStatus code: {api_err.response.status_code}"
-                        err_details += f"\nResponse text: {api_err.response.text}"
-                    except:
-                        pass
-                print(f"Error details: {err_details}")
-
-            # Try forcing garbage collection as a last resort
-            gc.collect()
-
+            error_type = type(api_err).__name__
+            error_message = str(api_err)
+            response_text = f"Error: API call failed with {error_type}: {error_message}"
+            logger.error(response_text)
+            # We re-raise the exception so it can be handled by the outer block
             raise api_err
 
     except Exception as e:
-        response_text = f"Error in chat_completion: {str(e)}"  # Update error message
+        # This outer block catches errors from get_client, the API call, etc.
+        error_type = type(e).__name__
+        error_message = str(e)
+        response_text = f"Error in chat_completion: {error_type}: {error_message}"
         logger.error(response_text)
+
         # Reset tokens/latency on error
         prompt_tokens = 0
         completion_tokens = 0
