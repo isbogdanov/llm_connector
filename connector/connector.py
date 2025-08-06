@@ -63,6 +63,38 @@ _session = None
 _openai_clients = {}
 _groq_client = None
 logger = logging.getLogger("LLMConnector")  # Placeholder logger
+_session_stats = {}  # To track tokens and costs per provider
+
+
+def _update_stats(provider, prompt_tokens, completion_tokens):
+    """Update and log the session stats for a given provider."""
+    provider_name, model_name = provider
+
+    if provider_name not in _session_stats:
+        _session_stats[provider_name] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost": 0.0,
+        }
+
+    _session_stats[provider_name]["prompt_tokens"] += prompt_tokens
+    _session_stats[provider_name]["completion_tokens"] += completion_tokens
+
+    cost = 0.0
+    price_key = (provider_name, model_name)
+    if MODEL_PRICING and price_key in MODEL_PRICING:
+        input_price, output_price = MODEL_PRICING[price_key]
+        cost = ((prompt_tokens / 1_000_000) * input_price) + (
+            (completion_tokens / 1_000_000) * output_price
+        )
+        _session_stats[provider_name]["cost"] += cost
+        logger.info(
+            f"Usage - Provider: {provider_name}, Model: {model_name}, Prompt: {prompt_tokens}, Completion: {completion_tokens}, Cost: ${cost:.6f}"
+        )
+    else:
+        logger.info(
+            f"Usage - Provider: {provider_name}, Model: {model_name}, Prompt: {prompt_tokens}, Completion: {completion_tokens}, Cost: (pricing not available)"
+        )
 
 
 def get_session():
@@ -93,14 +125,30 @@ def get_session():
                 )
             else:
                 logger.info(f"Current file descriptor limit: {soft}.")
-        except Exception as e:
-            logger.warning(f"Failed to adjust file descriptor limit: {e}")
+        except Exception as exception:
+            logger.warning(f"Failed to adjust file descriptor limit: {exception}")
     return _session
 
 
 def cleanup_resources():
-    """Clean up all global resources."""
-    global _session, _openai_clients, _groq_client
+    """Clean up resources and log the session summary."""
+    global _session, _openai_clients, _groq_client, _session_stats
+
+    if _session_stats:
+        summary_header = "\n--- LLM Connector Session Summary ---\n"
+        summary_body = "{:<15} | {:>15} | {:>15} | {:>15}\n".format(
+            "Provider", "Prompt Tokens", "Completion Tokens", "Total Cost"
+        )
+        summary_line = "-" * 67 + "\n"
+
+        for provider, stats in _session_stats.items():
+            cost_str = f"${stats['cost']:.6f}" if stats["cost"] > 0 else "N/A"
+            summary_body += "{:<15} | {:>15,} | {:>15,} | {:>15}\n".format(
+                provider, stats["prompt_tokens"], stats["completion_tokens"], cost_str
+            )
+
+        logger.info(summary_header + summary_body + summary_line)
+
     if _session:
         logger.info("Cleaning up global session")
         _session.close()
@@ -160,12 +208,18 @@ def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
     }
     request_url = f"{OPENROUTER_BASE_URL}/chat/completions"
 
-    response_text, p_tokens, c_tokens, t_tokens, latency = None, 0, 0, 0, 0.0
+    response_text, prompt_tokens, completion_tokens, total_tokens, latency = (
+        None,
+        0,
+        0,
+        0,
+        0.0,
+    )
     start_time = time.monotonic()
 
     try:
         session = get_session()
-        logger.info(f"HTTP Request: POST {request_url}")
+        logger.info(f"HTTP Request: POST {request_url} for model {model}")
         response = session.post(
             request_url, headers=headers, json=payload, timeout=(3.05, 60)
         )
@@ -175,24 +229,27 @@ def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
         if "choices" in response_data and response_data["choices"]:
             response_text = response_data["choices"][0]["message"]["content"]
             usage = response_data.get("usage", {})
-            p_tokens = usage.get("prompt_tokens", 0)
-            c_tokens = usage.get("completion_tokens", 0)
-            t_tokens = usage.get("total_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+            _update_stats(("openrouter", model), prompt_tokens, completion_tokens)
         else:
             response_text = "Error: Unexpected response format from OpenRouter"
             logger.error(f"{response_text}: {response_data}")
-    except requests.exceptions.RequestException as e:
-        response_text = f"Error with OpenRouter API: {type(e).__name__}: {e}"
+    except requests.exceptions.RequestException as exception:
+        response_text = (
+            f"Error with OpenRouter API: {type(exception).__name__}: {exception}"
+        )
         logger.error(response_text)
-        if hasattr(e, "response") and e.response:
-            logger.error(f"Response status: {e.response.status_code}")
-            logger.error(f"Response text: {e.response.text}")
+        if hasattr(exception, "response") and exception.response:
+            logger.error(f"Response status: {exception.response.status_code}")
+            logger.error(f"Response text: {exception.response.text}")
     finally:
         latency = time.monotonic() - start_time
         if "response" in locals() and response:
             response.close()
 
-    return response_text, p_tokens, c_tokens, t_tokens, latency
+    return response_text, prompt_tokens, completion_tokens, total_tokens, latency
 
 
 def chat_completion(
@@ -204,7 +261,7 @@ def chat_completion(
     debug: bool = False,
 ) -> Tuple[str, int, int, int, float]:
     """Generate a chat completion using the specified provider."""
-    response_text, p_tokens, c_tokens, t_tokens, latency = (
+    response_text, prompt_tokens, completion_tokens, total_tokens, latency = (
         "Error: Init failed",
         0,
         0,
@@ -226,6 +283,9 @@ def chat_completion(
             )
 
         client = get_client(provider)
+        logger.info(
+            f"Requesting completion from {provider_name} with model {model_name}"
+        )
         start_call_time = time.monotonic()
         response = client.chat.completions.create(
             model=model_name,
@@ -239,18 +299,19 @@ def chat_completion(
         if response and response.choices:
             response_text = response.choices[0].message.content
             if response.usage:
-                p_tokens = response.usage.prompt_tokens or 0
-                c_tokens = response.usage.completion_tokens or 0
-                t_tokens = response.usage.total_tokens or 0
+                prompt_tokens = response.usage.prompt_tokens or 0
+                completion_tokens = response.usage.completion_tokens or 0
+                total_tokens = response.usage.total_tokens or 0
+                _update_stats(provider, prompt_tokens, completion_tokens)
         else:
             response_text = "Error: No response/choices received from API"
 
-    except Exception as e:
-        error_type = type(e).__name__
-        error_message = str(e)
+    except Exception as exception:
+        error_type = type(exception).__name__
+        error_message = str(exception)
         response_text = f"Error in chat_completion: {error_type}: {error_message}"
         logger.error(response_text)
-        if "Too many open files" in str(e):
+        if "Too many open files" in str(exception):
             logger.warning(
                 "Detected 'Too many open files' error, performing emergency cleanup"
             )
@@ -260,4 +321,4 @@ def chat_completion(
     if latency == 0.0:
         latency = time.monotonic() - start_time
 
-    return response_text, p_tokens, c_tokens, t_tokens, latency
+    return response_text, prompt_tokens, completion_tokens, total_tokens, latency
