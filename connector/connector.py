@@ -16,17 +16,18 @@ import os
 import openai
 import json
 import requests
-import time  # Import time for latency measurement
-from typing import List, Dict, Any, Optional, Tuple  # Added Tuple
+import time
+from typing import List, Dict, Any, Optional, Tuple
 from groq import Groq
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import atexit
 import gc
 import resource
+import logging
 
-# Import the new logger
-from .logger_config import logger
+# Import the new logger setup function
+from .logger_config import setup_timestamped_logging
 
 # Import settings from the new settings file
 try:
@@ -46,8 +47,6 @@ except ImportError:
     print(
         "Could not import from connector_settings.py, using fallback environment variables."
     )
-    # Fallback to environment variables if the settings file is not found
-    # This makes the connector more robust for different deployment scenarios
     OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
     LOCAL_LLAMA_BASE_URL = os.environ.get("LOCAL_LLAMA_BASE_URL")
@@ -56,45 +55,21 @@ except ImportError:
     OPENROUTER_SITE_NAME = os.environ.get("OPENROUTER_SITE_NAME")
     OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL")
     DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openrouter")
-    DEFAULT_MODEL = os.environ.get(
-        "DEFAULT_MODEL", "google/gemini-pro"
-    )  # Provide a default
+    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "google/gemini-pro")
     MODEL_PRICING = {}
 
-
-# Set a higher file descriptor limit if possible
-try:
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    new_soft = min(4096, hard)  # Try to increase to 4096 but don't exceed hard limit
-    if new_soft > soft:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
-        logger.info(f"Increased file descriptor limit from {soft} to {new_soft}")
-    else:
-        logger.info(f"Current file descriptor limit: {soft}")
-except Exception as e:
-    logger.warning(f"Failed to adjust file descriptor limit: {e}")
-
-# Client configurations are now built dynamically from settings
-LOCAL_LLAMA_CONFIG = {
-    "api_key": "not-needed",
-    "base_url": LOCAL_LLAMA_BASE_URL,
-}
-
-OLLAMA_CONFIG = {
-    "api_key": "ollama",  # Ollama requires a non-empty key, 'ollama' is standard
-    "base_url": OLLAMA_BASE_URL,
-}
-
-# Create global session with connection pooling and retry logic
+# --- Global State ---
 _session = None
-_openai_clients = {}  # Cache for OpenAI clients
+_openai_clients = {}
 _groq_client = None
+logger = logging.getLogger("LLMConnector")  # Placeholder logger
 
 
 def get_session():
-    """Get a persistent session with connection pooling"""
-    global _session
+    """Get a persistent session, initializing logging on first creation."""
+    global _session, logger
     if _session is None:
+        logger = setup_timestamped_logging()
         _session = requests.Session()
         retry_strategy = Retry(
             total=3,
@@ -107,102 +82,75 @@ def get_session():
         )
         _session.mount("http://", adapter)
         _session.mount("https://", adapter)
-        logger.info("Created new persistent session with connection pooling")
+        logger.info("Created new persistent session with connection pooling.")
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            new_soft = min(4096, hard)
+            if new_soft > soft:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+                logger.info(
+                    f"Increased file descriptor limit from {soft} to {new_soft}."
+                )
+            else:
+                logger.info(f"Current file descriptor limit: {soft}.")
+        except Exception as e:
+            logger.warning(f"Failed to adjust file descriptor limit: {e}")
     return _session
 
 
 def cleanup_resources():
-    """Clean up all global resources"""
+    """Clean up all global resources."""
     global _session, _openai_clients, _groq_client
-
-    # Close the global session
-    if _session is not None:
+    if _session:
         logger.info("Cleaning up global session")
         _session.close()
         _session = None
-
-    # Clear OpenAI client cache
     _openai_clients.clear()
-
-    # Clean up Groq client
     _groq_client = None
-
-    # Force garbage collection
     gc.collect()
-
     logger.info("All network resources cleaned up")
 
 
-# Register cleanup to happen at program exit
 atexit.register(cleanup_resources)
+
+# --- Client Configurations ---
+LOCAL_LLAMA_CONFIG = {"api_key": "not-needed", "base_url": LOCAL_LLAMA_BASE_URL}
+OLLAMA_CONFIG = {"api_key": "ollama", "base_url": OLLAMA_BASE_URL}
 
 
 def get_client(provider: tuple[str, str]):
-    """
-    Get a client configured for the specified provider
-
-    Args:
-        provider (tuple): ('provider_name', 'model_name')
-
-    Returns:
-        Client instance (OpenAI for local/ollama, Groq for groq, None for openrouter)
-    """
+    """Get a client configured for the specified provider."""
     global _openai_clients, _groq_client
-
-    provider_name = provider[0]
-
+    provider_name, _ = provider
     if provider_name in ["local", "ollama"]:
-        # Cache OpenAI clients by provider to avoid creating too many
         if provider_name not in _openai_clients:
-            if provider_name == "local":
-                _openai_clients[provider_name] = openai.OpenAI(**LOCAL_LLAMA_CONFIG)
-                logger.info(f"Created new {provider_name} OpenAI client")
-            else:  # ollama
-                # The base_url is now direct from settings
-                _openai_clients[provider_name] = openai.OpenAI(**OLLAMA_CONFIG)
-                logger.info(f"Created new {provider_name} OpenAI client")
+            config = LOCAL_LLAMA_CONFIG if provider_name == "local" else OLLAMA_CONFIG
+            _openai_clients[provider_name] = openai.OpenAI(**config)
+            logger.info(f"Created new {provider_name} OpenAI client")
         return _openai_clients[provider_name]
-
     elif provider_name == "groq":
         if _groq_client is None:
             if not GROQ_API_KEY:
-                raise ValueError("GROQ_API_KEY is not set in settings or environment.")
+                raise ValueError("GROQ_API_KEY is not set.")
             _groq_client = Groq(api_key=GROQ_API_KEY)
             logger.info("Created new Groq client")
         return _groq_client
-
     elif provider_name == "openrouter":
-        # OpenRouter doesn't use a client instance; we use direct HTTP requests
         return None
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
 
 def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
-    """
-    Send a chat completion request to OpenRouter
-
-    Args:
-        messages: List of message dictionaries
-        model: Model name for OpenRouter
-        temperature: Temperature parameter
-        max_tokens: Maximum tokens in response
-        top_p: Top-p sampling parameter
-
-    Returns:
-        Tuple[Optional[str], int, int, int, float]:
-            (response_text, prompt_tokens, completion_tokens, total_tokens, latency)
-    """
+    """Send a chat completion request to OpenRouter."""
     if not OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY is not set in settings or environment.")
-
+        raise ValueError("OPENROUTER_API_KEY is not set.")
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "HTTP-Referer": OPENROUTER_REFERER,
         "X-Title": OPENROUTER_SITE_NAME,
         "Content-Type": "application/json",
     }
-
     payload = {
         "model": model,
         "messages": messages,
@@ -210,64 +158,41 @@ def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
         "max_tokens": max_tokens,
         "top_p": top_p,
     }
-
-    # The base_url is now also from settings
     request_url = f"{OPENROUTER_BASE_URL}/chat/completions"
 
-    response_text = None
-    prompt_tokens = 0
-    completion_tokens = 0
-    total_tokens = 0
-    latency = 0.0
-
+    response_text, p_tokens, c_tokens, t_tokens, latency = None, 0, 0, 0, 0.0
     start_time = time.monotonic()
+
     try:
-        # Log the request (similar to httpx format)
-        logger.info(f"HTTP Request: POST {request_url}")
-
-        # Use the persistent session with connection pooling
         session = get_session()
+        logger.info(f"HTTP Request: POST {request_url}")
         response = session.post(
-            request_url,
-            headers=headers,
-            json=payload,
-            timeout=(3.05, 60),  # connect timeout, read timeout
+            request_url, headers=headers, json=payload, timeout=(3.05, 60)
         )
-
-        # Log the response status
         logger.info(f"HTTP Response: {response.status_code} {response.reason}")
-
-        try:
-            response.raise_for_status()
-            response_data = response.json()
-
-            if "choices" in response_data and len(response_data["choices"]) > 0:
-                response_text = response_data["choices"][0]["message"]["content"]
-                # Extract usage info if available
-                usage = response_data.get("usage", {})
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                total_tokens = usage.get("total_tokens", 0)
-            else:
-                logger.error(
-                    f"Unexpected response format from OpenRouter: {response_data}"
-                )
-                response_text = "Error: Unexpected response format from OpenRouter"
-        finally:
-            # Always close the response to release the connection back to the pool
-            response.close()
-
+        response.raise_for_status()
+        response_data = response.json()
+        if "choices" in response_data and response_data["choices"]:
+            response_text = response_data["choices"][0]["message"]["content"]
+            usage = response_data.get("usage", {})
+            p_tokens = usage.get("prompt_tokens", 0)
+            c_tokens = usage.get("completion_tokens", 0)
+            t_tokens = usage.get("total_tokens", 0)
+        else:
+            response_text = "Error: Unexpected response format from OpenRouter"
+            logger.error(f"{response_text}: {response_data}")
     except requests.exceptions.RequestException as e:
-        logger.error(f"OpenRouter API error: {str(e)}")
+        response_text = f"Error with OpenRouter API: {type(e).__name__}: {e}"
+        logger.error(response_text)
         if hasattr(e, "response") and e.response:
             logger.error(f"Response status: {e.response.status_code}")
             logger.error(f"Response text: {e.response.text}")
-            e.response.close()  # Close the error response too
-        response_text = f"Error with OpenRouter API: {str(e)}"
     finally:
         latency = time.monotonic() - start_time
+        if "response" in locals() and response:
+            response.close()
 
-    return response_text, prompt_tokens, completion_tokens, total_tokens, latency
+    return response_text, p_tokens, c_tokens, t_tokens, latency
 
 
 def chat_completion(
@@ -278,134 +203,53 @@ def chat_completion(
     top_p: float = 0.7,
     debug: bool = False,
 ) -> Tuple[str, int, int, int, float]:
-    """
-    Generate a chat completion using the specified provider
-
-    Args:
-        messages: List of message dictionaries
-        temperature: Temperature parameter
-        max_tokens: Maximum tokens in response
-        provider: Tuple of (provider_name, model_name)
-        top_p: Top-p sampling parameter
-        debug: Enable extra debug output
-
-    Returns:
-        Tuple[str, int, int, int, float]:
-            (response_text, prompt_tokens, completion_tokens, total_tokens, latency)
-            Returns error message as text and 0s for tokens/latency on failure.
-    """
-    response_text = "Error: Initialization failed"
-    prompt_tokens = 0
-    completion_tokens = 0
-    total_tokens = 0
-    latency = 0.0
+    """Generate a chat completion using the specified provider."""
+    response_text, p_tokens, c_tokens, t_tokens, latency = (
+        "Error: Init failed",
+        0,
+        0,
+        0,
+        0.0,
+    )
     start_time = time.monotonic()
 
     try:
+        provider_name, model_name = provider
         if debug:
             print(f"\n{'='*40}\nDEBUG MODE ENABLED\n{'='*40}")
             print(f"Provider: {provider}")
             print(f"Messages: {json.dumps(messages, indent=2)}")
 
-        provider_name = provider[0]
-        model_name = provider[1]
-
-        # Handle OpenRouter separately since it doesn't use a client
         if provider_name == "openrouter":
             return openrouter_chat_completion(
-                messages=messages,
-                model=model_name,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
+                messages, model_name, temperature, max_tokens, top_p
             )
 
-        # For other providers, get the appropriate client
         client = get_client(provider)
-        response = None  # Initialize response variable
+        start_call_time = time.monotonic()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+        )
+        latency = time.monotonic() - start_call_time
 
-        # Make the API call with the appropriate client
-        try:
-            start_call_time = time.monotonic()
-            if provider_name == "local":
-                # For local llama.cpp
-                response = client.chat.completions.create(
-                    model=model_name,  # This doesn't matter for llama.cpp
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            elif provider_name == "ollama":
-                # For Ollama
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            else:  # groq
-                # For Groq API using native client
-                response = client.chat.completions.create(
-                    messages=messages,
-                    model=model_name,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    top_p=top_p,
-                )
-            call_latency = time.monotonic() - start_call_time
-            latency = call_latency  # Primarily measure the API call time
-
-            # Extract results and usage
-            if response and response.choices:
-                response_text = response.choices[0].message.content
-                if response.usage:
-                    prompt_tokens = response.usage.prompt_tokens or 0
-                    completion_tokens = response.usage.completion_tokens or 0
-                    total_tokens = response.usage.total_tokens or 0
-                else:
-                    # Handle cases where usage might be missing (e.g., older Ollama?)
-                    response_text = response.choices[
-                        0
-                    ].message.content  # Still get content
-                    # Tokens remain 0
-            else:
-                response_text = "Error: No response/choices received from API"
-                # Tokens remain 0
-
-            if debug:
-                print(f"Success! Response received.")
-                print(f"Response preview: {response_text[:100]}...")
-
-            return (
-                response_text,
-                prompt_tokens,
-                completion_tokens,
-                total_tokens,
-                latency,
-            )
-
-        except Exception as api_err:
-            error_type = type(api_err).__name__
-            error_message = str(api_err)
-            response_text = f"Error: API call failed with {error_type}: {error_message}"
-            logger.error(response_text)
-            # We re-raise the exception so it can be handled by the outer block
-            raise api_err
+        if response and response.choices:
+            response_text = response.choices[0].message.content
+            if response.usage:
+                p_tokens = response.usage.prompt_tokens or 0
+                c_tokens = response.usage.completion_tokens or 0
+                t_tokens = response.usage.total_tokens or 0
+        else:
+            response_text = "Error: No response/choices received from API"
 
     except Exception as e:
-        # This outer block catches errors from get_client, the API call, etc.
         error_type = type(e).__name__
         error_message = str(e)
         response_text = f"Error in chat_completion: {error_type}: {error_message}"
         logger.error(response_text)
-
-        # Reset tokens/latency on error
-        prompt_tokens = 0
-        completion_tokens = 0
-        total_tokens = 0
-        latency = time.monotonic() - start_time  # Record total time until error
-
-        # If it's a "Too many open files" error, attempt emergency cleanup
         if "Too many open files" in str(e):
             logger.warning(
                 "Detected 'Too many open files' error, performing emergency cleanup"
@@ -416,4 +260,4 @@ def chat_completion(
     if latency == 0.0:
         latency = time.monotonic() - start_time
 
-    return response_text, prompt_tokens, completion_tokens, total_tokens, latency
+    return response_text, p_tokens, c_tokens, t_tokens, latency
