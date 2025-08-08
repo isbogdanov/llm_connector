@@ -4,7 +4,7 @@ import datetime
 from logging.handlers import RotatingFileHandler
 
 
-def setup_timestamped_logging():
+def setup_timestamped_logging(level=logging.INFO):
     """Set up a robust, configurable logging system with a timestamped file."""
     # Get the absolute path to the directory of this file
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +21,7 @@ def setup_timestamped_logging():
 
     # Configure the logger
     logger = logging.getLogger("LLMConnector")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
 
     # Prevent duplicate handlers
     if logger.hasHandlers():

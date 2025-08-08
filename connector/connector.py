@@ -64,6 +64,7 @@ _openai_clients = {}
 _groq_client = None
 logger = logging.getLogger("LLMConnector")  # Placeholder logger
 _session_stats = {}  # To track tokens and costs per provider
+_logging_initialized = False  # Flag to ensure logging is set up only once
 
 
 def _update_stats(provider, prompt_tokens, completion_tokens):
@@ -97,36 +98,52 @@ def _update_stats(provider, prompt_tokens, completion_tokens):
         )
 
 
+def _initialize_session_and_logging(debug_mode=False):
+    """
+    Initializes the session and the timestamped logger.
+    This function is called only once on the first chat_completion call.
+    """
+    global _session, logger, _logging_initialized
+    if _logging_initialized:
+        return
+
+    # 1. Set up the timestamped logger for this run
+    log_level = logging.DEBUG if debug_mode else logging.INFO
+    logger = setup_timestamped_logging(log_level)
+
+    # 2. Create the persistent requests session (moved from get_session)
+    _session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST"],
+        backoff_factor=0.5,
+    )
+    adapter = HTTPAdapter(
+        pool_connections=10, pool_maxsize=110, max_retries=retry_strategy
+    )
+    _session.mount("http://", adapter)
+    _session.mount("https://", adapter)
+    logger.info("Created new persistent session with connection pooling.")
+
+    # 3. Configure system resources
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        new_soft = min(4096, hard)
+        if new_soft > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+            logger.info(f"Increased file descriptor limit from {soft} to {new_soft}.")
+        else:
+            logger.info(f"Current file descriptor limit: {soft}.")
+    except Exception as exception:
+        logger.warning(f"Failed to adjust file descriptor limit: {exception}")
+
+    _logging_initialized = True
+
+
 def get_session():
-    """Get a persistent session, initializing logging on first creation."""
-    global _session, logger
-    if _session is None:
-        logger = setup_timestamped_logging()
-        _session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "POST"],
-            backoff_factor=0.5,
-        )
-        adapter = HTTPAdapter(
-            pool_connections=10, pool_maxsize=110, max_retries=retry_strategy
-        )
-        _session.mount("http://", adapter)
-        _session.mount("https://", adapter)
-        logger.info("Created new persistent session with connection pooling.")
-        try:
-            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-            new_soft = min(4096, hard)
-            if new_soft > soft:
-                resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
-                logger.info(
-                    f"Increased file descriptor limit from {soft} to {new_soft}."
-                )
-            else:
-                logger.info(f"Current file descriptor limit: {soft}.")
-        except Exception as exception:
-            logger.warning(f"Failed to adjust file descriptor limit: {exception}")
+    """Get a persistent session. Note: Initialization is now in chat_completion."""
+    # The session is now guaranteed to be initialized by the time this is called.
     return _session
 
 
@@ -228,6 +245,7 @@ def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
         response_data = response.json()
         if "choices" in response_data and response_data["choices"]:
             response_text = response_data["choices"][0]["message"]["content"]
+            logger.debug(f"LLM Response: {response_text}")
             usage = response_data.get("usage", {})
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
@@ -258,9 +276,12 @@ def chat_completion(
     max_tokens: int = 1024,
     provider: tuple[str, str] = (DEFAULT_PROVIDER, DEFAULT_MODEL),
     top_p: float = 0.7,
-    debug: bool = False,
+    debug: bool = True,
 ) -> Tuple[str, int, int, int, float]:
     """Generate a chat completion using the specified provider."""
+    # Ensure session and logging are initialized. This only runs once.
+    _initialize_session_and_logging(debug_mode=debug)
+
     response_text, prompt_tokens, completion_tokens, total_tokens, latency = (
         "Error: Init failed",
         0,
@@ -272,10 +293,10 @@ def chat_completion(
 
     try:
         provider_name, model_name = provider
-        if debug:
-            print(f"\n{'='*40}\nDEBUG MODE ENABLED\n{'='*40}")
-            print(f"Provider: {provider}")
-            print(f"Messages: {json.dumps(messages, indent=2)}")
+        # With verbose logging enabled, log the full prompt
+        logger.debug(
+            f"Provider: {provider}, Messages: {json.dumps(messages, indent=2)}"
+        )
 
         if provider_name == "openrouter":
             return openrouter_chat_completion(
@@ -298,6 +319,7 @@ def chat_completion(
 
         if response and response.choices:
             response_text = response.choices[0].message.content
+            logger.debug(f"LLM Response: {response_text}")
             if response.usage:
                 prompt_tokens = response.usage.prompt_tokens or 0
                 completion_tokens = response.usage.completion_tokens or 0
