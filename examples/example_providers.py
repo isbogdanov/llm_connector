@@ -63,7 +63,7 @@ def main():
     providers_to_test = [
         ("openrouter", "anthropic/claude-3-5-haiku"),
         ("openai", "gpt-4o-mini"),
-        ("anthropic", "claude-3-haiku-20240307"),
+        ("anthropic", "claude-haiku-4-5"),
         ("google", "gemini-2.5-flash"),
         ("groq", "llama-3.3-70b-versatile")
     ]

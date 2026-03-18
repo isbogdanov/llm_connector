@@ -83,7 +83,6 @@ class AnthropicAdapter(AdapterBase):
                 "messages": anthropic_messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                "top_p": top_p,
             }
             if system_instruction:
                 kwargs_dict["system"] = system_instruction

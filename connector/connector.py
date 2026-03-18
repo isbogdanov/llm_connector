@@ -77,12 +77,13 @@ def _update_stats(provider, prompt_tokens, completion_tokens):
     _session_stats[provider_name]["completion_tokens"] += completion_tokens
 
     input_price, output_price = pricing_manager.get_model_pricing(provider_name, model_name)
+    has_pricing = pricing_manager.has_model_pricing(provider_name, model_name)
     cost = ((prompt_tokens / 1_000_000) * input_price) + (
         (completion_tokens / 1_000_000) * output_price
     )
     _session_stats[provider_name]["cost"] += cost
     
-    if cost > 0:
+    if has_pricing:
         logger.info(
             f"Usage - Provider: {provider_name}, Model: {model_name}, Prompt: {prompt_tokens}, Completion: {completion_tokens}, Cost: ${cost:.6f}"
         )
@@ -191,6 +192,7 @@ def cleanup_resources():
             logger.error(f"Error cleaning up adapter {adapter_name}: {e}")
             
     _adapters.clear()
+    _session_stats.clear()
     gc.collect()
     logger.info("All network resources cleaned up")
 

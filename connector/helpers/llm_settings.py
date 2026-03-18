@@ -15,14 +15,13 @@
 import os
 import yaml
 
-from .path_resolver import CONNECTOR_HOME, CONF_DIR
+from .path_resolver import CONF_DIR
 
 try:
     from dotenv import load_dotenv
-    # Load .env from the resolved CONNECTOR_HOME (user's workspace, not site-packages)
-    env_path = os.path.join(CONNECTOR_HOME, ".env")
-    if os.path.exists(env_path):
-        load_dotenv(env_path)
+    # No explicit path — python-dotenv walks upward from CWD to find .env
+    # Works in both dev mode (finds root .env) and pip mode (finds scaffolded .env)
+    load_dotenv()
 except ImportError:
     pass
 

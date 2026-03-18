@@ -18,7 +18,8 @@ import glob
 import logging
 import requests
 import datetime
-from .llm_settings import config, CONF_DIR
+from .llm_settings import config
+from .path_resolver import CONF_DIR, LOGS_DIR
 
 logger = logging.getLogger("LLMConnector")
 
@@ -26,7 +27,7 @@ class PricingManager:
     def __init__(self):
         self.model_pricing = {}
         self.dynamic_pricing = {}
-        self.logs_dir = os.path.join(os.path.dirname(CONF_DIR), "logs", "pricing")
+        self.logs_dir = os.path.join(LOGS_DIR, "pricing")
         
         # Sequentially hydrate state from YAML overrides and JSON caches
         self._load_yaml_pricing()
@@ -124,8 +125,30 @@ class PricingManager:
         
         if lookup_id in self.dynamic_pricing:
             return self.dynamic_pricing[lookup_id]
+
+        # 3. Normalize version dashes to dots (e.g. claude-haiku-4-5 -> claude-haiku-4.5)
+        #    Anthropic native API uses dashes, OpenRouter pricing uses dots
+        normalized = self._normalize_model_version(lookup_id)
+        if normalized != lookup_id and normalized in self.dynamic_pricing:
+            return self.dynamic_pricing[normalized]
             
         return (0.0, 0.0)
+
+    def has_model_pricing(self, provider: str, model: str) -> bool:
+        """Returns True if pricing data exists for this provider/model (including explicit $0.00)."""
+        if (provider, model) in self.model_pricing:
+            return True
+        lookup_id = f"{provider}/{model}" if provider != "openrouter" else model
+        if lookup_id in self.dynamic_pricing:
+            return True
+        normalized = self._normalize_model_version(lookup_id)
+        return normalized != lookup_id and normalized in self.dynamic_pricing
+
+    @staticmethod
+    def _normalize_model_version(lookup_id: str) -> str:
+        """Convert trailing version dashes to dots: anthropic/claude-haiku-4-5 -> anthropic/claude-haiku-4.5"""
+        import re
+        return re.sub(r'(\d)-(\d)', r'\1.\2', lookup_id)
 
 # Expose singleton instance for the main connector logger pipeline natively
 pricing_manager = PricingManager()

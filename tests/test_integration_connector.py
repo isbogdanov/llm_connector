@@ -37,11 +37,11 @@ def are_credentials_present(provider):
         val = os.environ.get("GROQ_API_KEY")
         return bool(val and "YOUR-" not in val)
     if provider == "local":
-        val = os.environ.get("LOCAL_LLAMA_BASE_URL")
-        return bool(val and "YOUR-" not in val)
+        from connector.helpers.llm_settings import LOCAL_LLAMA_BASE_URL
+        return bool(LOCAL_LLAMA_BASE_URL)
     if provider == "ollama":
-        val = os.environ.get("OLLAMA_BASE_URL")
-        return bool(val and "YOUR-" not in val)
+        from connector.helpers.llm_settings import OLLAMA_BASE_URL
+        return bool(OLLAMA_BASE_URL)
     if provider == "google":
         val = os.environ.get("GOOGLE_API_KEY")
         return bool(val and "YOUR-" not in val)
@@ -101,7 +101,7 @@ def test_openai_acceptance(test_messages):
 @pytest.mark.skipif(not are_credentials_present("anthropic"), reason="Anthropic API key not configured.")
 def test_anthropic_acceptance(test_messages):
     from connector.connector import chat_completion
-    model = "claude-3-haiku-20240307"
+    model = "claude-haiku-4-5"
     response, _, _, _, latency = chat_completion(test_messages, provider=("anthropic", model))
     print(f"\nAnthropic ({model}) Response (Latency: {latency:.2f}s): {response}")
     assert "Paris" in response
