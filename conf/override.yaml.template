@@ -1,0 +1,32 @@
+# =========================================================================
+# SYSTEM OVERRIDES (override.yaml.template)
+# =========================================================================
+# To actively use these overrides, safely COPY this file and rename it 
+# to strictly `override.yaml`. 
+# 
+# `override.yaml` is natively ignored by Git (.gitignore) so your local 
+# IPs and enterprise cost contracts remain safely untracked locally!
+#
+# DO NOT put API keys here. API keys strictly belong in `.env`.
+
+# --- 1. Local Endpoint Definitions ---
+# Since local instances like Ollama or Llama.cpp have no unified public 
+# web address, you must define your explicit internal network IPs here
+# by replacing the `YOUR_INTERNAL_IP` placeholders:
+urls:
+  local_llama_base_url: "http://YOUR_INTERNAL_IP:8080/v1"
+  ollama_base_url: "http://YOUR_INTERNAL_IP:11434/v1"
+  
+# --- 2. Custom Pricing Overrides ---
+# Token costs are structured as [prompt_cost, completion_cost] per 1 Million tokens.
+# The system automatically downloads live OpenRouter API prices into `logs/pricing/`.
+#
+# Only override prices here for local servers, completely free tiers, 
+# or explicit bespoke enterprise contracts:
+pricing:
+  ollama:
+    "llama3.1:8b": [0.0, 0.0]
+  local:
+    local-model: [0.0, 0.0]
+  groq:
+    llama-3.1-8b-instant: [0.0, 0.0]

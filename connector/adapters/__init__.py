@@ -12,37 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Make the main functions and classes available for easier import
-from .connector import (
-    chat_completion,
-    get_client,
-    get_session,
-    cleanup_resources,
-)
-from .helpers.llm_settings import (
-    LOCAL_LLAMA_BASE_URL,
-    OLLAMA_BASE_URL,
-)
-from .adapters import (
-    GoogleAdapter,
-    OpenRouterAdapter,
-    GroqAdapter,
-    LocalAdapter,
-    OpenAIAdapter,
-    AnthropicAdapter,
-)
+from .adapter import AdapterBase
+from .google_adapter import GoogleAdapter
+from .openrouter_adapter import OpenRouterAdapter
+from .local_adapter import LocalAdapter
+from .groq_adapter import GroqAdapter
+from .openai_adapter import OpenAIAdapter
+from .anthropic_adapter import AnthropicAdapter
 
 __all__ = [
-    "chat_completion",
-    "get_client",
-    "get_session",
-    "cleanup_resources",
-    "LOCAL_LLAMA_BASE_URL",
-    "OLLAMA_BASE_URL",
+    "AdapterBase",
     "GoogleAdapter",
     "OpenRouterAdapter",
-    "GroqAdapter",
     "LocalAdapter",
+    "GroqAdapter",
     "OpenAIAdapter",
     "AnthropicAdapter",
 ]

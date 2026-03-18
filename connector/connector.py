@@ -13,12 +13,10 @@
 # limitations under the License.
 
 import os
-import openai
 import json
 import requests
 import time
 from typing import List, Dict, Any, Optional, Tuple
-from groq import Groq
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import atexit
@@ -26,46 +24,43 @@ import gc
 import resource
 import logging
 
-# Import the new logger setup function
-from .logger_config import setup_timestamped_logging
 
-# Import settings from the new settings file
-try:
-    from .connector_settings import (
-        OPENROUTER_API_KEY,
-        GROQ_API_KEY,
-        LOCAL_LLAMA_BASE_URL,
-        OLLAMA_BASE_URL,
-        OPENROUTER_REFERER,
-        OPENROUTER_SITE_NAME,
-        OPENROUTER_BASE_URL,
-        DEFAULT_PROVIDER,
-        DEFAULT_MODEL,
-        MODEL_PRICING,
-    )
-except ImportError:
-    print(
-        "Could not import from connector_settings.py, using fallback environment variables."
-    )
-    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-    GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-    LOCAL_LLAMA_BASE_URL = os.environ.get("LOCAL_LLAMA_BASE_URL")
-    OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL")
-    OPENROUTER_REFERER = os.environ.get("OPENROUTER_REFERER")
-    OPENROUTER_SITE_NAME = os.environ.get("OPENROUTER_SITE_NAME")
-    OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL")
-    DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openrouter")
-    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "google/gemini-pro")
-    MODEL_PRICING = {}
+
+from .helpers.logger_config import setup_timestamped_logging
+
+from .helpers.llm_settings import (
+    DEFAULT_PROVIDER,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TOP_P,
+)
+from .helpers.security_settings import (
+    RETRY_MAX,
+    RETRY_BACKOFF,
+    RETRY_STATUSES,
+    POOL_CONNECTIONS,
+    POOL_MAXSIZE,
+    RLIMIT_NOFILE,
+)
+from .helpers.pricing import pricing_manager
+
+from .adapters import (
+    GoogleAdapter,
+    OpenRouterAdapter,
+    LocalAdapter,
+    GroqAdapter,
+    OpenAIAdapter,
+    AnthropicAdapter,
+)
 
 # --- Global State ---
 _session = None
-_openai_clients = {}
-_groq_client = None
-logger = logging.getLogger("LLMConnector")  # Placeholder logger
-_session_stats = {}  # To track tokens and costs per provider
-_logging_initialized = False  # Flag to ensure logging is set up only once
+logger = logging.getLogger("LLMConnector")
+_session_stats = {}
+_logging_initialized = False
 
+_adapters = {}
 
 def _update_stats(provider, prompt_tokens, completion_tokens):
     """Update and log the session stats for a given provider."""
@@ -81,14 +76,13 @@ def _update_stats(provider, prompt_tokens, completion_tokens):
     _session_stats[provider_name]["prompt_tokens"] += prompt_tokens
     _session_stats[provider_name]["completion_tokens"] += completion_tokens
 
-    cost = 0.0
-    price_key = (provider_name, model_name)
-    if MODEL_PRICING and price_key in MODEL_PRICING:
-        input_price, output_price = MODEL_PRICING[price_key]
-        cost = ((prompt_tokens / 1_000_000) * input_price) + (
-            (completion_tokens / 1_000_000) * output_price
-        )
-        _session_stats[provider_name]["cost"] += cost
+    input_price, output_price = pricing_manager.get_model_pricing(provider_name, model_name)
+    cost = ((prompt_tokens / 1_000_000) * input_price) + (
+        (completion_tokens / 1_000_000) * output_price
+    )
+    _session_stats[provider_name]["cost"] += cost
+    
+    if cost > 0:
         logger.info(
             f"Usage - Provider: {provider_name}, Model: {model_name}, Prompt: {prompt_tokens}, Completion: {completion_tokens}, Cost: ${cost:.6f}"
         )
@@ -101,7 +95,6 @@ def _update_stats(provider, prompt_tokens, completion_tokens):
 def _initialize_session_and_logging(debug_mode=False):
     """
     Initializes the session and the timestamped logger.
-    This function is called only once on the first chat_completion call.
     """
     global _session, logger, _logging_initialized
     if _logging_initialized:
@@ -111,16 +104,16 @@ def _initialize_session_and_logging(debug_mode=False):
     log_level = logging.DEBUG if debug_mode else logging.INFO
     logger = setup_timestamped_logging(log_level)
 
-    # 2. Create the persistent requests session (moved from get_session)
+    # 2. Create the persistent requests session
     _session = requests.Session()
     retry_strategy = Retry(
-        total=3,
-        status_forcelist=[429, 500, 502, 503, 504],
+        total=RETRY_MAX,
+        status_forcelist=RETRY_STATUSES,
         allowed_methods=["HEAD", "GET", "POST"],
-        backoff_factor=0.5,
+        backoff_factor=RETRY_BACKOFF,
     )
     adapter = HTTPAdapter(
-        pool_connections=10, pool_maxsize=110, max_retries=retry_strategy
+        pool_connections=POOL_CONNECTIONS, pool_maxsize=POOL_MAXSIZE, max_retries=retry_strategy
     )
     _session.mount("http://", adapter)
     _session.mount("https://", adapter)
@@ -129,7 +122,7 @@ def _initialize_session_and_logging(debug_mode=False):
     # 3. Configure system resources
     try:
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        new_soft = min(4096, hard)
+        new_soft = min(RLIMIT_NOFILE, hard)
         if new_soft > soft:
             resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
             logger.info(f"Increased file descriptor limit from {soft} to {new_soft}.")
@@ -142,14 +135,34 @@ def _initialize_session_and_logging(debug_mode=False):
 
 
 def get_session():
-    """Get a persistent session. Note: Initialization is now in chat_completion."""
-    # The session is now guaranteed to be initialized by the time this is called.
+    """Get a persistent session for generic HTTP clients."""
     return _session
+
+
+def get_adapter(provider_name: str):
+    """Retrieve or instantiate the requested adapter."""
+    global _adapters
+    if provider_name not in _adapters:
+        if provider_name == "google":
+            _adapters[provider_name] = GoogleAdapter()
+        elif provider_name == "openrouter":
+            _adapters[provider_name] = OpenRouterAdapter()
+        elif provider_name in ["local", "ollama"]:
+            _adapters[provider_name] = LocalAdapter(provider_name)
+        elif provider_name == "groq":
+            _adapters[provider_name] = GroqAdapter()
+        elif provider_name == "openai":
+            _adapters[provider_name] = OpenAIAdapter()
+        elif provider_name == "anthropic":
+            _adapters[provider_name] = AnthropicAdapter()
+        else:
+            raise ValueError(f"Unsupported provider: {provider_name}")
+    return _adapters[provider_name]
 
 
 def cleanup_resources():
     """Clean up resources and log the session summary."""
-    global _session, _openai_clients, _groq_client, _session_stats
+    global _session, _session_stats, _adapters
 
     if _session_stats:
         summary_header = "\n--- LLM Connector Session Summary ---\n"
@@ -170,124 +183,55 @@ def cleanup_resources():
         logger.info("Cleaning up global session")
         _session.close()
         _session = None
-    _openai_clients.clear()
-    _groq_client = None
+
+    for adapter_name, adapter in _adapters.items():
+        try:
+            adapter.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up adapter {adapter_name}: {e}")
+            
+    _adapters.clear()
     gc.collect()
     logger.info("All network resources cleaned up")
 
 
 atexit.register(cleanup_resources)
 
-# --- Client Configurations ---
-LOCAL_LLAMA_CONFIG = {"api_key": "not-needed", "base_url": LOCAL_LLAMA_BASE_URL}
-OLLAMA_CONFIG = {"api_key": "ollama", "base_url": OLLAMA_BASE_URL}
-
 
 def get_client(provider: tuple[str, str]):
-    """Get a client configured for the specified provider."""
-    global _openai_clients, _groq_client
+    """Compatibility wrapper that retrieves the raw client object for third-party SDKs if needed."""
     provider_name, _ = provider
-    if provider_name in ["local", "ollama"]:
-        if provider_name not in _openai_clients:
-            config = LOCAL_LLAMA_CONFIG if provider_name == "local" else OLLAMA_CONFIG
-            _openai_clients[provider_name] = openai.OpenAI(**config)
-            logger.info(f"Created new {provider_name} OpenAI client")
-        return _openai_clients[provider_name]
-    elif provider_name == "groq":
-        if _groq_client is None:
-            if not GROQ_API_KEY:
-                raise ValueError("GROQ_API_KEY is not set.")
-            _groq_client = Groq(api_key=GROQ_API_KEY)
-            logger.info("Created new Groq client")
-        return _groq_client
-    elif provider_name == "openrouter":
-        return None
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
-
-
-def openrouter_chat_completion(messages, model, temperature, max_tokens, top_p):
-    """Send a chat completion request to OpenRouter."""
-    if not OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY is not set.")
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": OPENROUTER_REFERER,
-        "X-Title": OPENROUTER_SITE_NAME,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "top_p": top_p,
-    }
-    request_url = f"{OPENROUTER_BASE_URL}/chat/completions"
-
-    response_text, prompt_tokens, completion_tokens, total_tokens, latency = (
-        None,
-        0,
-        0,
-        0,
-        0.0,
-    )
-    start_time = time.monotonic()
-
-    try:
-        session = get_session()
-        logger.info(f"HTTP Request: POST {request_url} for model {model}")
-        response = session.post(
-            request_url, headers=headers, json=payload, timeout=(3.05, 60)
-        )
-        logger.info(f"HTTP Response: {response.status_code} {response.reason}")
-        response.raise_for_status()
-        response_data = response.json()
-        if "choices" in response_data and response_data["choices"]:
-            response_text = response_data["choices"][0]["message"]["content"]
-            logger.debug(f"LLM Response: {response_text}")
-            usage = response_data.get("usage", {})
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            total_tokens = usage.get("total_tokens", 0)
-            _update_stats(("openrouter", model), prompt_tokens, completion_tokens)
-        else:
-            response_text = "Error: Unexpected response format from OpenRouter"
-            logger.error(f"{response_text}: {response_data}")
-    except requests.exceptions.RequestException as exception:
-        response_text = (
-            f"Error with OpenRouter API: {type(exception).__name__}: {exception}"
-        )
-        logger.error(response_text)
-        if hasattr(exception, "response") and exception.response:
-            logger.error(f"Response status: {exception.response.status_code}")
-            logger.error(f"Response text: {exception.response.text}")
-    finally:
-        latency = time.monotonic() - start_time
-        if "response" in locals() and response:
-            response.close()
-
-    return response_text, prompt_tokens, completion_tokens, total_tokens, latency
+    adapter = get_adapter(provider_name)
+    if hasattr(adapter, "_client"):
+        return adapter._client
+    return True
 
 
 def chat_completion(
     messages: List[Dict[str, str]],
-    temperature: float = 0.2,
-    max_tokens: int = 1024,
-    provider: tuple[str, str] = (DEFAULT_PROVIDER, DEFAULT_MODEL),
-    top_p: float = 0.7,
+    temperature: float = None,
+    max_tokens: int = None,
+    provider: tuple[str, str] = None,
+    top_p: float = None,
     debug: bool = True,
 ) -> Tuple[str, int, int, int, float]:
-    """Generate a chat completion using the specified provider."""
+    """Generate a chat completion using the specified provider adapter."""
+    
+    # 1. Inherit rigid YAML defaults dynamically
+    if provider is None:
+        provider = (DEFAULT_PROVIDER, DEFAULT_MODEL)
+    if temperature is None:
+        temperature = float(DEFAULT_TEMPERATURE)
+    if max_tokens is None:
+        max_tokens = int(DEFAULT_MAX_TOKENS)
+    if top_p is None:
+        top_p = float(DEFAULT_TOP_P)
+
     # Ensure session and logging are initialized. This only runs once.
     _initialize_session_and_logging(debug_mode=debug)
 
     response_text, prompt_tokens, completion_tokens, total_tokens, latency = (
-        "Error: Init failed",
-        0,
-        0,
-        0,
-        0.0,
+        "Error: Init failed", 0, 0, 0, 0.0,
     )
     start_time = time.monotonic()
 
@@ -298,35 +242,21 @@ def chat_completion(
             f"Provider: {provider}, Messages: {json.dumps(messages, indent=2)}"
         )
 
-        if provider_name == "openrouter":
-            return openrouter_chat_completion(
-                messages, model_name, temperature, max_tokens, top_p
-            )
-
-        client = get_client(provider)
-        logger.info(
-            f"Requesting completion from {provider_name} with model {model_name}"
-        )
-        start_call_time = time.monotonic()
-        response = client.chat.completions.create(
-            model=model_name,
+        adapter = get_adapter(provider_name)
+        
+        # Execute chat completion via the base class interface
+        response_text, prompt_tokens, completion_tokens, total_tokens, latency = adapter.chat_completion(
             messages=messages,
+            model=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
+            session=_session  # Specifically used natively by OpenRouterAdapter
         )
-        latency = time.monotonic() - start_call_time
 
-        if response and response.choices:
-            response_text = response.choices[0].message.content
-            logger.debug(f"LLM Response: {response_text}")
-            if response.usage:
-                prompt_tokens = response.usage.prompt_tokens or 0
-                completion_tokens = response.usage.completion_tokens or 0
-                total_tokens = response.usage.total_tokens or 0
-                _update_stats(provider, prompt_tokens, completion_tokens)
-        else:
-            response_text = "Error: No response/choices received from API"
+        # Routing adapter returned success if tokens exist! Report usage.
+        if prompt_tokens > 0 or completion_tokens > 0:
+            _update_stats(provider, prompt_tokens, completion_tokens)
 
     except Exception as exception:
         error_type = type(exception).__name__
@@ -340,6 +270,7 @@ def chat_completion(
             cleanup_resources()
             gc.collect()
 
+    # Fallback to total elapsed time if adapter failed to track cleanly
     if latency == 0.0:
         latency = time.monotonic() - start_time
 

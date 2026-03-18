@@ -1,4 +1,0 @@
-openai
-groq
-requests
-pytest 

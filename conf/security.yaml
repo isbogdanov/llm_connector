@@ -1,0 +1,22 @@
+# =========================================================================
+# SYSTEM SECURITY & RESILIENCE (security.yaml)
+# =========================================================================
+# This architecture governs the fail-safes that prevent the connector from 
+# spiraling out of control, hitting infinite loops, or over-consuming your 
+# local machine's memory and connection pools.
+
+# --- 1. Exponential Backoff & Retry ---
+# Safely prevents unintentional DDoS and avoids IP blacklisting when providers 
+# return severe gateway failures (HTTP 50x) or native rate limits (HTTP 429).
+retry:
+  max_retries: 3
+  backoff_factor: 1.0  # Formula: {backoff_factor} * (2 ** ({number of total retries} - 1))
+  status_forcelist: [429, 500, 502, 503, 504]
+
+# --- 2. Connection Pooling & Resource Caps ---
+# Hard bounds on internal OS limits and HTTP mount pools to prevent the python 
+# daemon from leaking file descriptors or hanging sockets globally.
+resources:
+  pool_connections: 10
+  pool_maxsize: 110
+  rlimit_nofile: 4096  # Maximum file descriptor limit target on boot

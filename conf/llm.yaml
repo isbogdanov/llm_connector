@@ -1,0 +1,33 @@
+# =========================================================================
+# SYSTEM CONFIGURATION (llm.yaml)
+# =========================================================================
+# This file serves as the strict baseline configuration for the application.
+# ALL changes specific to your local environment (like private endpoint URLs
+# or custom model pricing agreements) should STRICTLY go into `override.yaml`.
+# API Keys should NEVER be placed here. They belong securely in `.env`.
+# =========================================================================
+
+# --- 1. Global Defaults ---
+# Defines exactly which provider and model the `chat_completion()` router
+# will default to if none is explicitly specified in the function call.
+default_provider: openrouter
+default_model: google/gemini-2.5-flash-lite
+default_temperature: 0.2
+default_max_tokens: 1024
+default_top_p: 0.7
+
+# --- 2. API Endpoints ---
+# These are the canonical, public base URLs for all SDKs to dial natively.
+# Local endpoints (like Ollama) are omitted because they have no default IP.
+urls:
+  openrouter_base_url: https://openrouter.ai/api/v1
+  openai_base_url: https://api.openai.com/v1
+  anthropic_base_url: https://api.anthropic.com
+  google_base_url: https://generativelanguage.googleapis.com
+  groq_base_url: https://api.groq.com/openai/v1
+
+# --- 3. OpenRouter Sub-Routing ---
+# Metadata sent natively to OpenRouter API logs.
+openrouter_headers:
+  referer: ""
+  site_name: project_name

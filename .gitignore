@@ -74,4 +74,4 @@ connector_settings.py
 # Log files
 *.log
 logs/*
-!logs/.gitkeep
+!logs/.gitkeepconf/override.yaml
