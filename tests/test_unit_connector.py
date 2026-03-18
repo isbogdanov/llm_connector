@@ -20,36 +20,36 @@ def reset_connector_globals():
     """
     Reset global adapter caches to ensure tests run in an isolated state.
     """
-    import connector.connector
-    connector.connector.cleanup_resources()
+    import llm_connector.connector
+    llm_connector.connector.cleanup_resources()
 
 # --- Unit Tests ---
 
 def test_get_adapter():
     """Test that the adapter factory returns the correct classes based on provider."""
     print("\n[TEST] Verifying the factory accurately resolves all supported API Adapters.")
-    import connector.connector
-    from connector.adapters import GroqAdapter, LocalAdapter, OpenRouterAdapter, GoogleAdapter, OpenAIAdapter, AnthropicAdapter
+    import llm_connector.connector
+    from llm_connector.adapters import GroqAdapter, LocalAdapter, OpenRouterAdapter, GoogleAdapter, OpenAIAdapter, AnthropicAdapter
 
-    connector.connector.cleanup_resources()
+    llm_connector.connector.cleanup_resources()
 
     # Test that each provider correctly spins up its adapter
-    assert isinstance(connector.connector.get_adapter("groq"), GroqAdapter)
-    assert isinstance(connector.connector.get_adapter("local"), LocalAdapter)
-    assert isinstance(connector.connector.get_adapter("openrouter"), OpenRouterAdapter)
-    assert isinstance(connector.connector.get_adapter("google"), GoogleAdapter)
-    assert isinstance(connector.connector.get_adapter("openai"), OpenAIAdapter)
-    assert isinstance(connector.connector.get_adapter("anthropic"), AnthropicAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("groq"), GroqAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("local"), LocalAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("openrouter"), OpenRouterAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("google"), GoogleAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("openai"), OpenAIAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("anthropic"), AnthropicAdapter)
 
     # Test unsupported provider
     with pytest.raises(ValueError, match="Unsupported provider"):
-        connector.connector.get_adapter("unsupported")
+        llm_connector.connector.get_adapter("unsupported")
 
-@patch("connector.adapters.openrouter_adapter.OpenRouterAdapter.chat_completion")
+@patch("llm_connector.adapters.openrouter_adapter.OpenRouterAdapter.chat_completion")
 def test_openrouter_chat_completion_success(mock_openrouter_call):
     """Test that the chat_completion router hits the correct adapter method."""
     print("\n[TEST] Verifying dynamic token and latency passthrough routing natively.")
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
 
     mock_openrouter_call.return_value = ("Test response", 10, 20, 30, 1.5)
 
@@ -68,12 +68,12 @@ def test_openrouter_chat_completion_success(mock_openrouter_call):
     assert t_tokens == 30
     assert latency > 0
 
-@patch("connector.adapters.groq_adapter.GroqAdapter.chat_completion")
-@patch("connector.adapters.local_adapter.LocalAdapter.chat_completion")
+@patch("llm_connector.adapters.groq_adapter.GroqAdapter.chat_completion")
+@patch("llm_connector.adapters.local_adapter.LocalAdapter.chat_completion")
 def test_chat_completion_routing(mock_local_call, mock_groq_call):
     """Test that chat_completion routes to the correct function based on provider string."""
     print("\n[TEST] Ensuring explicit endpoint routing executes strictly without crosstalk.")
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
 
     mock_groq_call.return_value = ("Groq response", 5, 10, 15, 0.5)
     mock_local_call.return_value = ("Local response", 2, 4, 6, 0.1)
@@ -87,14 +87,14 @@ def test_chat_completion_routing(mock_local_call, mock_groq_call):
 def test_security_session_configuration():
     """Test that the internal requests.Session is configured with the correct security parameters."""
     print("\n[TEST] Validating strict security.yaml parameters map securely to the urllib3 pooling limits.")
-    import connector.connector
-    from connector.helpers.security_settings import RETRY_MAX, RETRY_BACKOFF, POOL_CONNECTIONS, POOL_MAXSIZE
+    import llm_connector.connector
+    from llm_connector.helpers.security_settings import RETRY_MAX, RETRY_BACKOFF, POOL_CONNECTIONS, POOL_MAXSIZE
     
     # Ensure fresh state
-    connector.connector._logging_initialized = False
-    connector.connector._initialize_session_and_logging()
+    llm_connector.connector._logging_initialized = False
+    llm_connector.connector._initialize_session_and_logging()
     
-    session = connector.connector.get_session()
+    session = llm_connector.connector.get_session()
     
     # Check that http and https adapters are mounted and configured
     http_adapter = session.adapters.get("http://")

@@ -12,20 +12,29 @@ A clean, modular Python connector providing a unified interface for various Larg
 
 ## Installation
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/isbogdanov/llm_connector.git
-    cd llm_connector
-    ```
+### Option A: Install from PyPI (recommended)
 
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+pip install llm-connector
+```
+
+Then scaffold your project workspace:
+
+```bash
+llm-connector init
+```
+
+This creates an `llm-connector/` directory with `conf/`, `logs/`, `.env.template`, and `override.yaml.template` — everything you need to configure the connector.
+
+### Option B: Clone as a submodule / standalone repo
+
+```bash
+git clone https://github.com/isbogdanov/llm_connector.git
+cd llm_connector
+pip install -e .
+```
 
 ## Configuration
-
-The architecture has been completely decoupled from heavy Python config files into a robust YAML system:
 
 1.  **API Keys (`.env`)**:
     Copy the environment template and insert your secret keys.
@@ -44,12 +53,14 @@ The architecture has been completely decoupled from heavy Python config files in
 3.  **Base System Configuration (`conf/llm.yaml`, `conf/logs.yaml`, `conf/security.yaml`)**:
     These files define the core tracked architecture. You can tune defaults like `default_provider`, log rotation limits, and API retry backoff-factors directly inside them.
 
+> **Note:** When installed via pip, all paths resolve relative to your scaffolded `llm-connector/` directory. You can override this with the `LLM_CONNECTOR_HOME` environment variable.
+
 ## Usage
 
 Import the `chat_completion` function from the connector.
 
 ```python
-from connector.connector import chat_completion
+from llm_connector import chat_completion
 
 # Example messages
 messages = [
@@ -80,7 +91,7 @@ response_local, _, _, _, _ = chat_completion(
 This package is designed to be infinitely extensible. To add a brand-new API provider, follow these 3 steps:
 
 1. **Create the Adapter Class**:
-   Add a new file in `connector/adapters/` (e.g., `my_adapter.py`). It must inherit from `AdapterBase` and strictly implement the core `chat_completion` signature:
+   Add a new file in `llm_connector/adapters/` (e.g., `my_adapter.py`). It must inherit from `AdapterBase` and strictly implement the core `chat_completion` signature:
    ```python
    from .adapter import AdapterBase
 
@@ -95,14 +106,14 @@ This package is designed to be infinitely extensible. To add a brand-new API pro
    ```
 
 2. **Export the Adapter**:
-   Expose your new adapter class inside `connector/adapters/__init__.py`:
+   Expose your new adapter class inside `llm_connector/adapters/__init__.py`:
    ```python
    from .my_adapter import MyCustomAdapter
    __all__ = [..., "MyCustomAdapter"]
    ```
 
 3. **Register it in the Router**:
-   Add your provider string internally into the `get_adapter` network factory inside `connector/connector.py`:
+   Add your provider string internally into the `get_adapter` network factory inside `llm_connector/connector.py`:
    ```python
    elif provider_name == "my-custom-api":
        _adapters[provider_name] = MyCustomAdapter()
@@ -115,6 +126,11 @@ The testing suite natively utilizes `pytest` to rigidly guarantee the dynamic YA
 To execute the entire engine diagnostic comprehensively, run:
 ```bash
 pytest tests/
+```
+
+To include local model tests (requires a running llama.cpp or Ollama server):
+```bash
+pytest tests/ --run-local
 ```
 
 The local suite actively asserts:

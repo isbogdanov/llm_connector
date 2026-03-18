@@ -23,7 +23,7 @@ except ImportError:
 
 import importlib
 try:
-    settings = importlib.import_module("connector.helpers.llm_settings")
+    settings = importlib.import_module("llm_connector.helpers.llm_settings")
     DEFAULT_MODEL = getattr(settings, "DEFAULT_MODEL", "google/gemini-2.5-flash")
 except ImportError:
     DEFAULT_MODEL = "google/gemini-2.5-flash"
@@ -37,10 +37,10 @@ def are_credentials_present(provider):
         val = os.environ.get("GROQ_API_KEY")
         return bool(val and "YOUR-" not in val)
     if provider == "local":
-        from connector.helpers.llm_settings import LOCAL_LLAMA_BASE_URL
+        from llm_connector.helpers.llm_settings import LOCAL_LLAMA_BASE_URL
         return bool(LOCAL_LLAMA_BASE_URL)
     if provider == "ollama":
-        from connector.helpers.llm_settings import OLLAMA_BASE_URL
+        from llm_connector.helpers.llm_settings import OLLAMA_BASE_URL
         return bool(OLLAMA_BASE_URL)
     if provider == "google":
         val = os.environ.get("GOOGLE_API_KEY")
@@ -68,7 +68,7 @@ def test_messages():
 
 @pytest.mark.skipif(not are_credentials_present("openrouter"), reason="OpenRouter API key not configured.")
 def test_openrouter_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = DEFAULT_MODEL
     response, _, _, _, latency = chat_completion(test_messages, provider=("openrouter", model))
     print(f"\nOpenRouter ({model}) Response (Latency: {latency:.2f}s): {response}")
@@ -76,7 +76,7 @@ def test_openrouter_acceptance(test_messages):
 
 @pytest.mark.skipif(not are_credentials_present("groq"), reason="Groq API key not configured.")
 def test_groq_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = "llama-3.1-8b-instant"
     response, _, _, _, latency = chat_completion(test_messages, provider=("groq", model))
     print(f"\nGroq ({model}) Response (Latency: {latency:.2f}s): {response}")
@@ -84,7 +84,7 @@ def test_groq_acceptance(test_messages):
 
 @pytest.mark.skipif(not are_credentials_present("google"), reason="Google API key not configured.")
 def test_google_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = "gemini-2.5-flash"
     response, _, _, _, latency = chat_completion(test_messages, provider=("google", model))
     print(f"\nGoogle ({model}) Response (Latency: {latency:.2f}s): {response}")
@@ -92,7 +92,7 @@ def test_google_acceptance(test_messages):
 
 @pytest.mark.skipif(not are_credentials_present("openai"), reason="OpenAI API key not configured.")
 def test_openai_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = "gpt-4o-mini"
     response, _, _, _, latency = chat_completion(test_messages, provider=("openai", model))
     print(f"\nOpenAI ({model}) Response (Latency: {latency:.2f}s): {response}")
@@ -100,7 +100,7 @@ def test_openai_acceptance(test_messages):
 
 @pytest.mark.skipif(not are_credentials_present("anthropic"), reason="Anthropic API key not configured.")
 def test_anthropic_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = "claude-haiku-4-5"
     response, _, _, _, latency = chat_completion(test_messages, provider=("anthropic", model))
     print(f"\nAnthropic ({model}) Response (Latency: {latency:.2f}s): {response}")
@@ -109,7 +109,7 @@ def test_anthropic_acceptance(test_messages):
 @pytest.mark.local_model
 @pytest.mark.skipif(not are_credentials_present("local"), reason="Local server not configured.")
 def test_local_llama_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     response, _, _, _, latency = chat_completion(test_messages, provider=("local", "local-model"))
     print(f"\nLocal Llama Response (Latency: {latency:.2f}s): {response}")
     assert "Error" not in response
@@ -117,7 +117,7 @@ def test_local_llama_acceptance(test_messages):
 @pytest.mark.local_model
 @pytest.mark.skipif(not are_credentials_present("ollama"), reason="Ollama server not configured.")
 def test_ollama_acceptance(test_messages):
-    from connector.connector import chat_completion
+    from llm_connector import chat_completion
     model = "llama3.1:8b"
     response, _, _, _, latency = chat_completion(test_messages, provider=("ollama", model))
     print(f"\nOllama ({model}) Response (Latency: {latency:.2f}s): {response}")

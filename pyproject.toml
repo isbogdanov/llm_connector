@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68.0,<71.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-connector"
+version = "1.1.2"
+description = "A unified Python connector for multiple LLM providers with YAML-driven configuration."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Igor Bogdanov"},
+]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "openai",
+    "groq",
+    "requests",
+    "google-genai",
+    "anthropic",
+    "python-dotenv",
+    "PyYAML",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-mock",
+]
+
+[project.urls]
+Homepage = "https://github.com/isbogdanov/llm_connector"
+Repository = "https://github.com/isbogdanov/llm_connector"
+Issues = "https://github.com/isbogdanov/llm_connector/issues"
+
+[project.scripts]
+llm-connector = "llm_connector.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["llm_connector*"]
+
+[tool.setuptools.package-data]
+llm_connector = [
+    "conf/llm.yaml",
+    "conf/security.yaml",
+    "conf/logs.yaml",
+    "conf/override.yaml.template",
+    ".env.template",
+]
+
+[tool.pytest.ini_options]
+addopts = "-v -s --tb=short"
+testpaths = ["tests"]

@@ -18,11 +18,13 @@ from typing import List, Dict, Tuple
 from .adapter import AdapterBase
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GOOGLE_SDK_AVAILABLE = True
 except ImportError:
     GOOGLE_SDK_AVAILABLE = False
     genai = None
+    types = None
 
 import os
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
@@ -32,20 +34,20 @@ logger = logging.getLogger("LLMConnector")
 
 class GoogleAdapter(AdapterBase):
     def __init__(self):
-        self._client_initialized = False
+        self._client = None
 
     def _initialize_client(self):
-        if not self._client_initialized:
+        if self._client is None:
             if not GOOGLE_SDK_AVAILABLE:
-                raise ValueError("google-generativeai package is not installed. Install it with: pip install google-generativeai")
+                raise ValueError("google-genai package is not installed. Install it with: pip install google-genai")
             if not GOOGLE_API_KEY:
                 raise ValueError("GOOGLE_API_KEY is not set.")
-            genai.configure(api_key=GOOGLE_API_KEY)
-            self._client_initialized = True
-            logger.info("Created new Google Generative AI client")
+            self._client = genai.Client(api_key=GOOGLE_API_KEY)
+            logger.info("Created new Google GenAI client")
 
     def _convert_messages_to_google_format(self, messages):
-        google_messages = []
+        """Convert OpenAI-style messages to Google GenAI contents format."""
+        contents = []
         system_instruction = None
         
         for msg in messages:
@@ -55,11 +57,17 @@ class GoogleAdapter(AdapterBase):
             if role == "system":
                 system_instruction = content
             elif role == "user":
-                google_messages.append({"role": "user", "parts": [content]})
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=content)]
+                ))
             elif role == "assistant":
-                google_messages.append({"role": "model", "parts": [content]})
+                contents.append(types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=content)]
+                ))
         
-        return google_messages, system_instruction
+        return contents, system_instruction
 
     def chat_completion(
         self,
@@ -85,24 +93,23 @@ class GoogleAdapter(AdapterBase):
         
         for attempt in range(max_retries + 1):
             try:
-                google_messages, system_instruction = self._convert_messages_to_google_format(messages)
+                contents, system_instruction = self._convert_messages_to_google_format(messages)
                 
-                generation_config = {
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens,
-                    "top_p": top_p,
-                }
-                
-                model_kwargs = {"model_name": model, "generation_config": generation_config}
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                    top_p=top_p,
+                )
                 if system_instruction:
-                    model_kwargs["system_instruction"] = system_instruction
+                    config.system_instruction = system_instruction
                 
-                google_model = genai.GenerativeModel(**model_kwargs)
+                logger.info(f"Requesting completion from Google GenAI with model {model} (attempt {attempt + 1}/{max_retries + 1})")
                 
-                logger.info(f"Requesting completion from Google Generative AI with model {model} (attempt {attempt + 1}/{max_retries + 1})")
-                
-                chat = google_model.start_chat(history=google_messages[:-1] if len(google_messages) > 1 else [])
-                response = chat.send_message(google_messages[-1]["parts"][0])
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
                 
                 latency = time.monotonic() - start_time
                 

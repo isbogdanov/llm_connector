@@ -74,4 +74,5 @@ connector_settings.py
 # Log files
 *.log
 logs/*
-connector/conf/override.yaml
+*/conf/override.yaml
+

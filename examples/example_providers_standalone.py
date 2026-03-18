@@ -21,10 +21,10 @@ import sys
 import os
 
 # Dynamically add the parent directory (llm_connector root) to the python path 
-# so it can seamlessly resolve `from connector.connector import chat_completion`
+# so it can seamlessly resolve `from llm_connector import chat_completion`
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from connector.connector import chat_completion
+from llm_connector import chat_completion
 
 def run_provider_test(provider_id, model_name):
     print(f"\n{'='*60}")
