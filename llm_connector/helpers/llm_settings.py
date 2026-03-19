@@ -15,13 +15,18 @@
 import os
 import yaml
 
-from .path_resolver import CONF_DIR
+from .path_resolver import CONF_DIR, CONNECTOR_HOME
 
 try:
     from dotenv import load_dotenv
-    # No explicit path — python-dotenv walks upward from CWD to find .env
-    # Works in both dev mode (finds root .env) and pip mode (finds scaffolded .env)
-    load_dotenv()
+    # Explicitly load from the resolved CONNECTOR_HOME directory
+    # This ensures we find .env inside the scaffolded llm-connector/ folder
+    env_path = os.path.join(CONNECTOR_HOME, ".env")
+    if os.path.isfile(env_path):
+        load_dotenv(env_path)
+    else:
+        # Fallback: walk upward from CWD (legacy behavior)
+        load_dotenv()
 except ImportError:
     pass
 
