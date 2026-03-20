@@ -76,3 +76,4 @@ connector_settings.py
 logs/*
 */conf/override.yaml
 
+.bugs/
