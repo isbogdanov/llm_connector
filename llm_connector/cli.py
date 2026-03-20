@@ -20,6 +20,7 @@ Usage: llm-connector init
 import os
 import sys
 import shutil
+import argparse
 
 
 def _get_package_conf_dir():
@@ -32,7 +33,7 @@ def _get_package_env_template():
     return os.path.join(os.path.dirname(__file__), ".env.template")
 
 
-def init_project(target_dir=None):
+def init_project(target_dir=None, force=False):
     """Scaffold a new llm-connector workspace in the target directory."""
     if target_dir is None:
         target_dir = os.path.join(os.getcwd(), "llm-connector")
@@ -41,9 +42,12 @@ def init_project(target_dir=None):
     logs_dir = os.path.join(target_dir, "logs")
 
     if os.path.exists(target_dir):
-        print(f"[!] Directory already exists: {target_dir}")
-        print("    Use --force to overwrite, or delete it manually.")
-        return False
+        if force:
+            shutil.rmtree(target_dir)
+        else:
+            print(f"[!] Directory already exists: {target_dir}")
+            print("    Use --force to overwrite, or delete it manually.")
+            return False
 
     # 1. Create directory structure
     os.makedirs(conf_dir, exist_ok=True)
@@ -83,7 +87,7 @@ def init_project(target_dir=None):
     print(f"  4. cp conf/override.yaml.template conf/override.yaml")
     print(f"  5. Edit conf/override.yaml with your local endpoints")
     print(f"\nThen use in your Python code:")
-    print(f"  from connector import chat_completion")
+    print(f"  from llm_connector import chat_completion")
     print(f"  response, *_ = chat_completion(messages)")
 
     return True
@@ -91,28 +95,33 @@ def init_project(target_dir=None):
 
 def main():
     """Entry point for the llm-connector CLI."""
-    if len(sys.argv) < 2:
-        print("Usage: llm-connector <command>")
-        print("")
-        print("Commands:")
-        print("  init       Scaffold a new llm-connector workspace in the current directory")
+    parser = argparse.ArgumentParser(
+        prog="llm-connector",
+        description="LLM Connector — a unified Python connector for multiple LLM providers.",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # init subcommand
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Scaffold a new llm-connector workspace in the current directory",
+    )
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing llm-connector/ directory if it exists",
+    )
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
         sys.exit(1)
 
-    command = sys.argv[1]
-
-    if command == "init":
-        force = "--force" in sys.argv
+    if args.command == "init":
         target = os.path.join(os.getcwd(), "llm-connector")
-
-        if force and os.path.exists(target):
-            shutil.rmtree(target)
-
-        success = init_project(target)
+        success = init_project(target, force=args.force)
         sys.exit(0 if success else 1)
-    else:
-        print(f"Unknown command: {command}")
-        print("Available commands: init")
-        sys.exit(1)
 
 
 if __name__ == "__main__":

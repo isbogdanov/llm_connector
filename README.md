@@ -26,6 +26,47 @@ llm-connector init
 
 This creates an `llm-connector/` directory with `conf/`, `logs/`, `.env.template`, and `override.yaml.template` — everything you need to configure the connector.
 
+## CLI Reference
+
+The `llm-connector` command-line tool helps you set up and manage your workspace.
+
+```bash
+llm-connector --help
+```
+
+### `llm-connector init`
+
+Scaffolds a new `llm-connector/` workspace in the current directory with all necessary configuration files.
+
+```bash
+llm-connector init [--force]
+```
+
+| Flag | Description |
+|---|---|
+| `--force` | Overwrite an existing `llm-connector/` directory |
+
+**Generated structure:**
+
+```
+llm-connector/
+├── .env.template              # Copy to .env and add your API keys
+├── conf/
+│   ├── llm.yaml               # Default provider, model, temperature, max_tokens
+│   ├── security.yaml          # Connection pooling, retry limits, backoff
+│   ├── logs.yaml              # Log rotation and formatting
+│   └── override.yaml.template # Copy to override.yaml for local endpoints
+└── logs/                      # Runtime logs (auto-created)
+```
+
+**After scaffolding:**
+
+```bash
+cd llm-connector
+cp .env.template .env          # Add your API keys
+cp conf/override.yaml.template conf/override.yaml  # Add local endpoints (optional)
+```
+
 ### Option B: Clone as a submodule / standalone repo
 
 ```bash

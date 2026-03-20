@@ -55,7 +55,7 @@ class OpenAIAdapter(AdapterBase):
             model=model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             top_p=top_p,
         )
         latency = time.monotonic() - start_call_time

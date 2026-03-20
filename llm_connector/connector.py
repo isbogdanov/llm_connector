@@ -163,7 +163,7 @@ def get_adapter(provider_name: str):
 
 def cleanup_resources():
     """Clean up resources and log the session summary."""
-    global _session, _session_stats, _adapters
+    global _session, _session_stats, _adapters, _logging_initialized
 
     if _session_stats:
         summary_header = "\n--- LLM Connector Session Summary ---\n"
@@ -193,6 +193,7 @@ def cleanup_resources():
             
     _adapters.clear()
     _session_stats.clear()
+    _logging_initialized = False
     gc.collect()
     logger.info("All network resources cleaned up")
 
