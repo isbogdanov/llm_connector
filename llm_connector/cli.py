@@ -33,6 +33,11 @@ def _get_package_env_template():
     return os.path.join(os.path.dirname(__file__), ".env.template")
 
 
+def _get_package_readme():
+    """Returns the path to the README.md shipped inside the pip package."""
+    return os.path.join(os.path.dirname(__file__), "README.md")
+
+
 def init_project(target_dir=None, force=False):
     """Scaffold a new llm-connector workspace in the target directory."""
     if target_dir is None:
@@ -76,7 +81,15 @@ def init_project(target_dir=None, force=False):
     else:
         print(f"[!] Warning: .env.template not found in package")
 
-    # 4. Print next steps
+    # 4. Copy README.md
+    readme = _get_package_readme()
+    if os.path.exists(readme):
+        shutil.copy2(readme, os.path.join(target_dir, "README.md"))
+        print(f"[+] Copied: README.md")
+    else:
+        print(f"[!] Warning: README.md not found in package")
+
+    # 5. Print next steps
     print(f"\n{'='*50}")
     print("LLM Connector scaffolded successfully!")
     print(f"{'='*50}")

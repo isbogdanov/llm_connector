@@ -19,6 +19,7 @@ from .local_adapter import LocalAdapter
 from .groq_adapter import GroqAdapter
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
+from .vertex_adapter import VertexAdapter
 
 __all__ = [
     "AdapterBase",
@@ -28,4 +29,5 @@ __all__ = [
     "GroqAdapter",
     "OpenAIAdapter",
     "AnthropicAdapter",
+    "VertexAdapter",
 ]

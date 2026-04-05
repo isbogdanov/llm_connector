@@ -30,6 +30,7 @@ def main():
         ("openai", "gpt-4o-mini"),
         ("anthropic", "claude-haiku-4-5"),
         ("groq", "llama-3.1-8b-instant"),
+        ("vertex", "gemini-2.5-flash"),
     ]
 
     for provider_name, model in providers:

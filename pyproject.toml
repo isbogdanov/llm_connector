@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-connector"
-version = "1.1.7"
+version = "1.1.8"
 description = "A unified Python connector for multiple LLM providers with YAML-driven configuration."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -50,6 +50,7 @@ llm_connector = [
     "conf/logs.yaml",
     "conf/override.yaml.template",
     ".env.template",
+    "README.md",
 ]
 
 [tool.pytest.ini_options]

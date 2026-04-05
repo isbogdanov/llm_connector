@@ -1,10 +1,10 @@
 # LLM Connector
 
-A clean, modular Python connector providing a unified interface for various Large Language Model (LLM) providers, including OpenRouter, OpenAI, Anthropic, Google (Gemini), Groq, and local instances like llama.cpp and Ollama.
+A clean, modular Python connector providing a unified interface for various Large Language Model (LLM) providers, including OpenRouter, OpenAI, Anthropic, Google (Gemini), Vertex AI, Groq, and local instances like llama.cpp and Ollama.
 
 ## Features
 
--   **Multiple Providers**: Connect natively to OpenRouter, Google, OpenAI, Anthropic, Groq, local llama.cpp, and Ollama.
+-   **Multiple Providers**: Connect natively to OpenRouter, Google, Vertex AI, OpenAI, Anthropic, Groq, local llama.cpp, and Ollama.
 -   **YAML Configuration**: Manage all URLs, timeouts, retry logic, logging structures, and default models strictly through transparent YAML files (`llm.yaml`, `security.yaml`, `logs.yaml`).
 -   **Secure Overrides**: Inject local offline IPs and enterprise pricing seamlessly via a `.gitignore` restricted `override.yaml` and keep API keys strictly in `.env`.
 -   **Resilient Connections**: Features internal connection pooling, exponential backoff logic (for Rate Limits & 50x errors), and dynamically tracks OpenRouter internet pricing.
@@ -120,7 +120,13 @@ response_openrouter, _, _, _, _ = chat_completion(
     temperature=0.5,
 )
 
-# 3. Hitting a local offline model
+# 3. Using Vertex AI
+response_vertex, _, _, _, _ = chat_completion(
+    messages,
+    provider=("vertex", "gemini-2.5-flash"),
+)
+
+# 4. Hitting a local offline model
 response_local, _, _, _, _ = chat_completion(
     messages,
     provider=("ollama", "llama3.1:8b"),

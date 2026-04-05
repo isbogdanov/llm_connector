@@ -52,6 +52,7 @@ from .adapters import (
     GroqAdapter,
     OpenAIAdapter,
     AnthropicAdapter,
+    VertexAdapter,
 )
 
 # --- Global State ---
@@ -156,6 +157,8 @@ def get_adapter(provider_name: str):
             _adapters[provider_name] = OpenAIAdapter()
         elif provider_name == "anthropic":
             _adapters[provider_name] = AnthropicAdapter()
+        elif provider_name == "vertex":
+            _adapters[provider_name] = VertexAdapter()
         else:
             raise ValueError(f"Unsupported provider: {provider_name}")
     return _adapters[provider_name]

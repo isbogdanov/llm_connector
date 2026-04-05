@@ -29,7 +29,7 @@ def test_get_adapter():
     """Test that the adapter factory returns the correct classes based on provider."""
     print("\n[TEST] Verifying the factory accurately resolves all supported API Adapters.")
     import llm_connector.connector
-    from llm_connector.adapters import GroqAdapter, LocalAdapter, OpenRouterAdapter, GoogleAdapter, OpenAIAdapter, AnthropicAdapter
+    from llm_connector.adapters import GroqAdapter, LocalAdapter, OpenRouterAdapter, GoogleAdapter, OpenAIAdapter, AnthropicAdapter, VertexAdapter
 
     llm_connector.connector.cleanup_resources()
 
@@ -40,6 +40,7 @@ def test_get_adapter():
     assert isinstance(llm_connector.connector.get_adapter("google"), GoogleAdapter)
     assert isinstance(llm_connector.connector.get_adapter("openai"), OpenAIAdapter)
     assert isinstance(llm_connector.connector.get_adapter("anthropic"), AnthropicAdapter)
+    assert isinstance(llm_connector.connector.get_adapter("vertex"), VertexAdapter)
 
     # Test unsupported provider
     with pytest.raises(ValueError, match="Unsupported provider"):
